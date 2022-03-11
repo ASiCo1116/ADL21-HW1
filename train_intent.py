@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Dict
 
 import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
 from tqdm import trange
 
 from dataset import SeqClsDataset
+from model import SeqClassifier
 from utils import Vocab
 
 TRAIN = "train"
@@ -29,21 +32,56 @@ def main(args):
         for split, split_data in data.items()
     }
     # TODO: crecate DataLoader for train / dev datasets
-
+    train_loader = DataLoader(
+        datasets[TRAIN],
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=datasets[TRAIN].collate_fn,
+    )
+    val_loader = DataLoader(
+        datasets[DEV],
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=datasets[DEV].collate_fn,
+    )
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
-    # TODO: init model and move model to target device(cpu / gpu)
-    model = None
+    # # TODO: init model and move model to target device(cpu / gpu)
+    model = SeqClassifier(
+        embeddings,
+        args.hidden_size,
+        args.num_layers,
+        args.dropout,
+        args.bidirectional,
+        datasets[TRAIN].num_classes,
+    ).to(args.device)
 
-    # TODO: init optimizer
-    optimizer = None
+    # # TODO: init optimizer
+    optimizer = torch.optim.Adam(model.parameters(), args.lr)
+    criterion = nn.CrossEntropyLoss()
 
     epoch_pbar = trange(args.num_epoch, desc="Epoch")
     for epoch in epoch_pbar:
-        # TODO: Training loop - iterate over train dataloader and update model weights
-        # TODO: Evaluation loop - calculate accuracy and save model weights
-        pass
+        tacc = 0
+        tloss = 0
 
-    # TODO: Inference on test set
+        model.train()
+        for i, batch in enumerate(train_loader):
+            pred = model(batch[0].to(args.device))
+            loss = criterion(pred, batch[1].to(args.device))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            tloss += loss.item()
+            tacc += torch.mean((torch.argmax(pred, dim=1) == batch[1].to(args.device)).float(), dim=0).item()
+        tloss /= len(train_loader)
+        tacc /= len(train_loader)
+
+        epoch_pbar.set_postfix({'tacc': tacc, 'tloss': tloss})
+        # print(f'tacc: {tacc:.3f} | tloss: {tloss:.3f}')
+        #     # TODO: Training loop - iterate over train dataloader and update model weights
+        #     # TODO: Evaluation loop - calculate accuracy and save model weights
+
+    # # TODO: Inference on test set
 
 
 def parse_args() -> Namespace:
@@ -52,13 +90,13 @@ def parse_args() -> Namespace:
         "--data_dir",
         type=Path,
         help="Directory to the dataset.",
-        default="./data/intent/",
+        default="/data/ADL/hw1/intent/",
     )
     parser.add_argument(
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/intent/",
+        default="/data/ADL/hw1/cache/intent/",
     )
     parser.add_argument(
         "--ckpt_dir",
@@ -95,4 +133,5 @@ def parse_args() -> Namespace:
 if __name__ == "__main__":
     args = parse_args()
     args.ckpt_dir.mkdir(parents=True, exist_ok=True)
+    print(args)
     main(args)

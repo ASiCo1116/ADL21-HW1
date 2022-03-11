@@ -98,20 +98,20 @@ def parse_args() -> Namespace:
         "--data_dir",
         type=Path,
         help="Directory to the dataset.",
-        default="./data/intent/",
+        default="/data/ADL/hw1/intent/",
     )
     parser.add_argument(
         "--glove_path",
         type=Path,
         help="Path to Glove Embedding.",
-        default="./glove.840B.300d.txt",
+        default="/data/ADL/hw1/glove.840B.300d.txt",
     )
     parser.add_argument("--rand_seed", type=int, help="Random seed.", default=13)
     parser.add_argument(
         "--output_dir",
         type=Path,
         help="Directory to save the processed file.",
-        default="./cache/intent/",
+        default="/data/ADL/hw1/cache/intent/",
     )
     parser.add_argument(
         "--vocab_size",
