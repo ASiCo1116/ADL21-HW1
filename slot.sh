@@ -1,0 +1,11 @@
+python3 train_slot.py \
+    --data_dir ~/data/ADL/hw1/slot/ \
+    --cache_dir ~/data/ADL/hw1/cache/slot/ \
+    --ckpt_dir "./ckpt/slot/hidden512_layer6"\
+    --lr 1e-3 \
+    --batch_size 32 \
+    --hidden_size 512 \
+    --num_layers 6 \
+    --num_epoch 200 \
+    --max_len 64 \
+    --device "cuda:1"
