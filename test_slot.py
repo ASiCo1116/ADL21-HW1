@@ -1,35 +1,34 @@
 import json
 import pickle
+import csv
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict
-from unittest import result
-from tqdm import tqdm
-import numpy as np
-import csv
 
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
+from tqdm import trange, tqdm
+import numpy as np
 
-from dataset import SeqClsDataset
-from model import SeqClassifier
+from dataset import SlotTagDataset
+from model import SlotClassifier
 from utils import Vocab
-
 
 def main(args):
     with open(args.cache_dir / "vocab.pkl", "rb") as f:
         vocab: Vocab = pickle.load(f)
 
-    intent_idx_path = args.cache_dir / "intent2idx.json"
-    intent2idx: Dict[str, int] = json.loads(intent_idx_path.read_text())
+    tag_idx_path = args.cache_dir / "tag2idx.json"
+    tag2idx: Dict[str, int] = json.loads(tag_idx_path.read_text())
 
     data = json.loads(args.test_file.read_text())
-    dataset = SeqClsDataset(data, vocab, intent2idx, args.max_len)
-    # TODO: crecate DataLoader for test dataset
+    dataset = SlotTagDataset(data, vocab, tag2idx, args.max_len)
+
     test_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=dataset.collate_fn)
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
-
-    model = SeqClassifier(
+    # # TODO: init model and move model to target device(cpu / gpu)
+    model = SlotClassifier(
         embeddings,
         args.hidden_size,
         args.num_layers,
@@ -37,34 +36,41 @@ def main(args):
         args.bidirectional,
         args.max_len,
         dataset.num_classes,
-    )
+    ).to(args.device)
+
     model.eval()
 
-    # load weights into model
     ckpt = torch.load(args.ckpt_path, map_location=args.device)
     model.load_state_dict(ckpt)
     model.to(args.device)
 
-    # TODO: predict dataset
     pred_ids = []
-    pred_intent = []
+    pred_slot = []
+    pred_length = []
     for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc="Test iter"):
-        text, ids = batch
+        model.initHidden(batch[0].size(0), args.device)
+
+        text, ids, length = batch
+        text = text.to(args.device)
         pred_ids.append(ids)
+        pred_length.append(length)
+
         with torch.no_grad():
-            logits = model(text.to(args.device))
-            pred = torch.argmax(logits, dim=1).cpu()
-        pred_intent.append(list(map(dataset.idx2label, pred.numpy())))
+            logits = model(text)
+            pred = torch.argmax(logits, dim=1)
+        pred_slot.append(pred.to('cpu').numpy())
 
-    pred_ids = np.concatenate(pred_ids).reshape(-1, 1)
-    pred_intent = np.concatenate(pred_intent).reshape(-1, 1)
-    results = np.hstack((pred_ids, pred_intent))
+    pred_ids = np.concatenate(pred_ids)
+    pred_slot = np.concatenate(pred_slot)
+    pred_length = np.concatenate(pred_length)
+    # results = np.hstack((pred_ids, pred_slot))
 
-    # TODO: write prediction to file (args.pred_file)
     with open(args.pred_file, 'w') as fw:
         writer = csv.writer(fw)
-        writer.writerow(['id', 'intent'])
-        writer.writerows(results)
+        writer.writerow(['id', 'tags'])
+        for id, tag, length in zip(pred_ids, pred_slot, pred_length):
+            tags = " ".join(list(map(dataset.idx2label, tag[:length])))
+            writer.writerow([id, tags])
 
 def parse_args() -> Namespace:
     parser = ArgumentParser()
@@ -78,7 +84,7 @@ def parse_args() -> Namespace:
         "--cache_dir",
         type=Path,
         help="Directory to the preprocessed caches.",
-        default="./cache/intent/",
+        default="./cache/slot/",
     )
     parser.add_argument(
         "--ckpt_path",
@@ -86,7 +92,7 @@ def parse_args() -> Namespace:
         help="Path to model checkpoint.",
         required=True
     )
-    parser.add_argument("--pred_file", type=Path, default="pred.intent.csv")
+    parser.add_argument("--pred_file", type=Path, default="pred.slot.csv")
 
     # data
     parser.add_argument("--max_len", type=int, default=128)
@@ -109,4 +115,5 @@ def parse_args() -> Namespace:
 
 if __name__ == "__main__":
     args = parse_args()
+    print(args)
     main(args)

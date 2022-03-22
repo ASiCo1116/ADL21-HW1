@@ -1,0 +1,5 @@
+**/*.csv
+**/*.ckpt
+**/*.sh
+runs
+test.py

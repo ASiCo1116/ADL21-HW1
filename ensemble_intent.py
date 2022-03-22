@@ -29,37 +29,48 @@ def main(args):
     test_loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, collate_fn=dataset.collate_fn)
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
 
-    model = SeqClassifier(
-        embeddings,
-        args.hidden_size,
-        args.num_layers,
-        args.dropout,
-        args.bidirectional,
-        args.max_len,
-        dataset.num_classes,
-    )
-    model.eval()
+    ckpt_path = ['best_intent_87984.ckpt', 'best_intent_88322.ckpt', 'best_intent_88721.ckpt']
+    all_logits = []
+    for j in range(3):
 
-    # load weights into model
-    ckpt = torch.load(args.ckpt_path, map_location=args.device)
-    model.load_state_dict(ckpt)
-    model.to(args.device)
+        model = SeqClassifier(
+            embeddings,
+            768,
+            4 if j != 2 else 5,
+            0.1,
+            True,
+            128,
+            dataset.num_classes,
+        )
+        model.eval()
 
-    # TODO: predict dataset
-    pred_ids = []
-    pred_intent = []
-    for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc="Test iter"):
-        text, ids = batch
-        pred_ids.append(ids)
-        with torch.no_grad():
-            logits = model(text.to(args.device))
-            pred = torch.argmax(logits, dim=1).cpu()
-        pred_intent.append(list(map(dataset.idx2label, pred.numpy())))
+        # load weights into model
+        ckpt = torch.load(ckpt_path[j], map_location=args.device)
+        model.load_state_dict(ckpt)
+        model.to(args.device)
 
-    pred_ids = np.concatenate(pred_ids).reshape(-1, 1)
-    pred_intent = np.concatenate(pred_intent).reshape(-1, 1)
-    results = np.hstack((pred_ids, pred_intent))
+        # TODO: predict dataset
+        pred_ids = []
+        pred_logits = []
+        for i, batch in tqdm(enumerate(test_loader), total=len(test_loader), desc="Test iter"):
+            text, ids = batch
+            pred_ids.append(ids)
+            with torch.no_grad():
+                logits = model(text.to(args.device))
+                pred_logits.append(logits.cpu())
+                # print(logits.size())
+                # import sys; sys.exit()
+                # pred = torch.argmax(logits, dim=1).cpu()
+            # pred_logits.append(list(map(dataset.idx2label, pred.numpy())))
 
+        pred_ids = np.concatenate(pred_ids).reshape(-1, 1)
+        pred_logits = torch.cat(pred_logits).reshape(-1, 150)
+        all_logits.append(pred_logits)
+        # results = np.hstack((pred_ids, pred_intent))
+    pred = sum(all_logits)
+    pred = torch.argmax(pred, dim=1).numpy()
+    pred = np.array(list(map(dataset.idx2label, pred))).reshape(-1, 1)
+    results = np.hstack((pred_ids, pred))
     # TODO: write prediction to file (args.pred_file)
     with open(args.pred_file, 'w') as fw:
         writer = csv.writer(fw)
@@ -79,12 +90,6 @@ def parse_args() -> Namespace:
         type=Path,
         help="Directory to the preprocessed caches.",
         default="./cache/intent/",
-    )
-    parser.add_argument(
-        "--ckpt_path",
-        type=Path,
-        help="Path to model checkpoint.",
-        required=True
     )
     parser.add_argument("--pred_file", type=Path, default="pred.intent.csv")
 
